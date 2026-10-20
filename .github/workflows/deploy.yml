@@ -1,0 +1,40 @@
+# The server (lavuks.club) checks main every minute, then builds and deploys
+# new commits itself (/opt/lavuks/deploy.sh, lavuks-deploy.timer).
+# This workflow waits for that deploy and reports whether it succeeded.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Wait for lavuks.club to deploy this commit
+        run: |
+          echo "Waiting for $GITHUB_SHA"
+          for i in $(seq 1 80); do
+            deployed=$(curl -fsS https://lavuks.club/_deploy/deployed || true)
+            failed=$(curl -fsS https://lavuks.club/_deploy/failed || true)
+            if [ "$deployed" = "$GITHUB_SHA" ]; then
+              echo "Deployed to https://lavuks.club"
+              exit 0
+            fi
+            if [ "$failed" = "$GITHUB_SHA" ]; then
+              echo "::error::Build or health check failed on the server; the previous version is still live."
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out waiting for the server to deploy $GITHUB_SHA (currently on $deployed)."
+          exit 1
+
+      - name: Check the site
+        run: curl -fsS -o /dev/null https://lavuks.club/
